@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (keep dataset local, don't commit large files)
+data/*.csv
+!data/.gitkeep
+
+# Streamlit
+.streamlit/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
