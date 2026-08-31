@@ -73,19 +73,30 @@ st.subheader("2. Train Churn Prediction Model")
 
 X, y, customer_ids = preprocess(df_raw)
 
+model_type = st.selectbox(
+    "Select model",
+    options=["gradient_boosting", "logistic_regression", "random_forest"],
+    format_func=lambda x: {
+        "gradient_boosting": "Gradient Boosting (best hit rate)",
+        "logistic_regression": "Logistic Regression (most interpretable)",
+        "random_forest": "Random Forest",
+    }[x],
+    help="Gradient Boosting achieved 80% Retention Hit Rate vs. 73% for Logistic Regression.",
+)
+
 if st.button("Train Model", type="primary"):
-    with st.spinner("Training model..."):
+    with st.spinner(f"Training {model_type} model..."):
         # Split for evaluation
         X_train, X_test, y_train, y_test = train_test_split_data(X, y)
 
         # Train on training set
-        model = train_model(X_train, y_train)
+        model = train_model(X_train, y_train, model_type=model_type)
 
         # Evaluate on test set
         metrics = evaluate_model(model, X_test, y_test)
 
         # Now train on full data for the production ranking
-        full_model = train_model(X, y)
+        full_model = train_model(X, y, model_type=model_type)
 
         # Score all customers
         scored_df = score_customers(full_model, df_raw, X, customer_ids)

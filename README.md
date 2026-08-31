@@ -86,15 +86,168 @@ telco-churn-mvp/
 ├── src/
 │   ├── __init__.py
 │   ├── data_loader.py              # Load & preprocess data
-│   ├── model.py                    # Train & evaluate churn model
-│   └── predict.py                  # Score customers & rank Top 100
+│   ├── model.py                    # Train & evaluate churn model (3 model types)
+│   ├── predict.py                  # Score customers & rank Top 100
+│   └── improve.py                  # Step 3: model comparison & feature importance
 ├── tests/
 │   ├── __init__.py
-│   └── test_model.py               # pytest tests
-├── app.py                           # Streamlit web app
+│   └── test_model.py               # pytest tests (17 tests)
+├── app.py                           # Streamlit web app (with model selector)
 ├── requirements.txt
 ├── .gitignore
 └── README.md
+```
+
+---
+
+## Step 2 — Build the MVP
+
+### What Was Built
+
+A complete, testable churn-prediction MVP with five components:
+
+| File | Purpose |
+|---|---|
+| `src/data_loader.py` | Loads CSV, coerces TotalCharges to numeric, encodes target, splits into X/y/IDs |
+| `src/model.py` | Scikit-learn Pipeline (OneHotEncoder + StandardScaler + LogisticRegression), train/evaluate functions, Retention Hit Rate metric |
+| `src/predict.py` | Scores all customers, ranks by churn probability, extracts Top 100, produces summary insights |
+| `tests/test_model.py` | 15 pytest tests covering data loading, preprocessing, model training, hit rate logic, and ranking |
+| `app.py` | Streamlit web app — load data, train model, view metrics & Top 100, download CSV |
+
+### Model Details
+
+- **Algorithm:** Logistic Regression with `class_weight="balanced"`
+- **Preprocessing:** OneHotEncoder for categorical features, StandardScaler for numeric features
+- **Why Logistic Regression?** Interpretable — the retention team can understand which factors drive churn risk. Sufficient for an MVP.
+
+### How to Run
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run tests
+pytest tests/ -v
+
+# Launch the Streamlit app
+streamlit run app.py
+```
+
+### Results
+
+**Test Set Evaluation (20% held out):**
+
+| Metric | Value | Target |
+|---|---|---|
+| Accuracy | 73.8% | — |
+| Precision | 50.4% | — |
+| Recall | 78.3% | — |
+| ROC-AUC | 0.841 | ≥ 0.80 |
+| Retention Hit Rate (Top 100) | 73.0% | ≥ 60% |
+
+**Full-Dataset Top 100 (production ranking):**
+
+| Metric | Value |
+|---|---|
+| Actual churners in Top 100 | 86 out of 100 |
+| Retention Hit Rate | 86.0% |
+| Lift vs. random | 3.25x |
+| Average churn probability (Top 100) | 91.2% |
+| Contract breakdown | 100% Month-to-month |
+
+All 100 of the Top 100 recommended customers have month-to-month contracts — the strongest churn signal in the dataset.
+
+### Test Results
+
+```
+15 passed in 1.29s
+```
+
+All 15 tests pass, covering:
+- Data loads with expected 21 columns
+- TotalCharges converts to numeric (no empty strings)
+- Target is binary (0/1)
+- customerID preserved separately
+- Model trains and produces valid probabilities in [0, 1]
+- Retention Hit Rate computed correctly (perfect, zero, partial, and edge cases)
+- Customers sorted by churn probability descending
+- Top 100 limited to exactly 100 rows
+- Rank column starts at 1
+- Summary includes retention_hit_rate
+
+---
+
+## Step 3 — Measure, Learn, Improve
+
+### Goal
+
+Take the Step 2 MVP and ask: Can we do better? Which features actually drive churn, and would a different model improve the Retention Hit Rate?
+
+### Model Comparison
+
+Three models were compared on the same 80/20 stratified train/test split:
+
+| Model | Accuracy | Precision | Recall | ROC-AUC | Hit Rate | Lift |
+|---|---|---|---|---|---|---|
+| Logistic Regression (Step 2) | 73.8% | 50.4% | 78.3% | 0.841 | 73.0% | 2.75x |
+| Random Forest | 75.4% | 52.6% | 75.1% | 0.838 | 78.0% | 2.94x |
+| **Gradient Boosting** | **78.8%** | **62.5%** | 50.0% | 0.835 | **80.0%** | **3.02x** |
+
+**Decision:** Gradient Boosting selected as the default model. It achieves the highest Retention Hit Rate (80% vs. 73% baseline) and the best precision (62.5%), meaning more of the recommended Top 100 actually churned. The trade-off is lower recall (50% vs. 78%), but for the retention team's use case — prioritizing the Top 100 highest-risk customers — precision matters more than catching every churner.
+
+Logistic Regression remains available in the app for interpretability.
+
+### Feature Importance (Gradient Boosting)
+
+Top 10 churn drivers by importance:
+
+| Rank | Feature | Importance |
+|---|---|---|
+| 1 | Contract = Month-to-month | 0.343 |
+| 2 | Tenure | 0.132 |
+| 3 | Total Charges | 0.121 |
+| 4 | Monthly Charges | 0.107 |
+| 5 | InternetService = Fiber optic | 0.078 |
+| 6 | OnlineSecurity = No | 0.062 |
+| 7 | PaymentMethod = Electronic check | 0.041 |
+| 8 | TechSupport = No | 0.034 |
+| 9 | PaperlessBilling = Yes | 0.011 |
+| 10 | MultipleLines = No | 0.009 |
+
+### What We Learned
+
+1. **Contract type is the #1 churn predictor** — month-to-month customers are by far the most likely to leave. Contract type alone accounts for 34% of the model's predictive power.
+2. **Tenure matters** — customers with low tenure (especially < 12 months) are at high risk. The model ranks new fiber optic customers with month-to-month contracts at the top.
+3. **Fiber optic + no online security = danger zone** — fiber optic customers without OnlineSecurity or TechSupport churn at 41.9%, suggesting service quality or expectations aren't being met.
+4. **Payment method is a signal** — electronic check users churn at 45.3%, possibly indicating less financial commitment to the service.
+5. **Higher charges correlate with churn** — churned customers pay $74.44/month on average vs. $61.27 for retained customers.
+
+### Changes Made in Step 3
+
+| File | Change |
+|---|---|
+| `src/improve.py` | New — model comparison script with feature importance analysis |
+| `src/model.py` | Added `model_type` parameter to support Gradient Boosting, Random Forest, and Logistic Regression |
+| `app.py` | Added model selector dropdown so the retention team can choose between models |
+| `tests/test_model.py` | Added tests for all model types and invalid model handling |
+
+### How to Run Step 3 Analysis
+
+```bash
+# Run the full model comparison
+python -m src.improve
+
+# Save results to JSON
+python -m src.improve --save
+
+# Run tests
+pytest tests/ -v
+```
+
+### Test Results
+
+```
+17 passed in 11.02s
 ```
 
 ---
@@ -103,9 +256,17 @@ telco-churn-mvp/
 
 | Phase | Activity | Status |
 |---|---|---|
-| **Build** | Create a model that scores each customer's churn probability and ranks the Top 100 | Step 1 (this README) |
-| **Measure** | Evaluate using Retention Hit Rate (Precision@100) on historical data | Step 2+ |
-| **Learn** | Identify which features drive churn, refine the model, iterate | Step 3+ |
+| **Build** | Create a model that scores each customer's churn probability and ranks the Top 100 | ✅ Step 2 |
+| **Measure** | Evaluate using Retention Hit Rate (Precision@100) on historical data | ✅ Step 2 |
+| **Learn** | Identify which features drive churn, compare models, improve hit rate 73% → 80% | ✅ Step 3 |
+
+### Next Improvement Ideas
+
+- Add customer segmentation (e.g., high-value customers first)
+- Collect feedback from real retention campaigns to measure actual hit rate
+- Engineer new features (e.g., tenure buckets, charge-to-tenure ratio)
+- Try ensemble methods or hyperparameter tuning
+- A/B test different outreach strategies for the Top 100
 
 ---
 

@@ -1,19 +1,20 @@
 """
 Churn prediction model for the Telco Customer Retention MVP.
 
-Uses a scikit-learn Pipeline with:
+Supports multiple classifiers selected via the ``model_type`` parameter:
+- ``"gradient_boosting"`` (default, best Retention Hit Rate)
+- ``"logistic_regression"`` (most interpretable)
+- ``"random_forest"``
+
+All models share the same preprocessing pipeline:
 - OneHotEncoder for categorical features
 - StandardScaler for numeric features
-- LogisticRegression (class_weight="balanced") as the classifier
-
-Logistic regression is chosen for interpretability — the retention team
-can understand which factors drive a customer's churn risk.
 """
 
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -22,9 +23,12 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .data_loader import get_feature_lists
 
+# Available model types
+MODEL_TYPES = ("gradient_boosting", "logistic_regression", "random_forest")
 
-def build_pipeline(X: pd.DataFrame) -> Pipeline:
-    """Build a preprocessing + classification pipeline.
+
+def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
+    """Build the shared preprocessor (OneHotEncoder + StandardScaler).
 
     Parameters
     ----------
@@ -33,31 +37,67 @@ def build_pipeline(X: pd.DataFrame) -> Pipeline:
 
     Returns
     -------
-    Pipeline
-        A scikit-learn Pipeline ready to fit.
+    ColumnTransformer
     """
     categorical_cols, numeric_cols = get_feature_lists(X)
-
-    preprocessor = ColumnTransformer(
+    return ColumnTransformer(
         transformers=[
             ("num", StandardScaler(), numeric_cols),
             ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
         ]
     )
 
-    classifier = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42)
 
-    pipeline = Pipeline(
+def _make_classifier(model_type: str):
+    """Create a classifier instance for the given model type."""
+    if model_type == "gradient_boosting":
+        return GradientBoostingClassifier(
+            n_estimators=200, max_depth=3, learning_rate=0.1, random_state=42
+        )
+    elif model_type == "logistic_regression":
+        return LogisticRegression(
+            max_iter=1000, class_weight="balanced", random_state=42
+        )
+    elif model_type == "random_forest":
+        return RandomForestClassifier(
+            n_estimators=200, max_depth=10, class_weight="balanced", random_state=42
+        )
+    else:
+        raise ValueError(
+            f"Unknown model_type '{model_type}'. Choose from {MODEL_TYPES}."
+        )
+
+
+def build_pipeline(X: pd.DataFrame, model_type: str = "gradient_boosting") -> Pipeline:
+    """Build a preprocessing + classification pipeline.
+
+    Parameters
+    ----------
+    X : pd.DataFrame
+        Feature matrix (used to detect column types).
+    model_type : str
+        Which classifier to use. One of ``MODEL_TYPES``.
+        Default: ``"gradient_boosting"`` (best Retention Hit Rate).
+
+    Returns
+    -------
+    Pipeline
+        A scikit-learn Pipeline ready to fit.
+    """
+    preprocessor = build_preprocessor(X)
+    classifier = _make_classifier(model_type)
+
+    return Pipeline(
         steps=[
             ("preprocessor", preprocessor),
             ("classifier", classifier),
         ]
     )
 
-    return pipeline
 
-
-def train_model(X: pd.DataFrame, y: pd.Series) -> Pipeline:
+def train_model(
+    X: pd.DataFrame, y: pd.Series, model_type: str = "gradient_boosting"
+) -> Pipeline:
     """Train the churn prediction model on the given data.
 
     Parameters
@@ -66,13 +106,15 @@ def train_model(X: pd.DataFrame, y: pd.Series) -> Pipeline:
         Feature matrix.
     y : pd.Series
         Binary target (1 = churned).
+    model_type : str
+        Which classifier to use. Default: ``"gradient_boosting"``.
 
     Returns
     -------
     Pipeline
         Fitted pipeline.
     """
-    pipeline = build_pipeline(X)
+    pipeline = build_pipeline(X, model_type=model_type)
     pipeline.fit(X, y)
     return pipeline
 

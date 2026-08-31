@@ -98,6 +98,23 @@ def test_build_pipeline_returns_pipeline(prepared):
     assert hasattr(pipeline, "predict_proba")
 
 
+def test_build_pipeline_all_model_types(prepared):
+    """build_pipeline should work with all three model types."""
+    from src.model import MODEL_TYPES
+    X, y, ids = prepared
+    for model_type in MODEL_TYPES:
+        pipeline = build_pipeline(X, model_type=model_type)
+        assert hasattr(pipeline, "fit")
+        assert hasattr(pipeline, "predict_proba")
+
+
+def test_invalid_model_type_raises(prepared):
+    """An invalid model_type should raise ValueError."""
+    X, y, ids = prepared
+    with pytest.raises(ValueError):
+        build_pipeline(X, model_type="invalid_model")
+
+
 def test_model_trains_and_predicts(prepared):
     """The trained model should produce probabilities in [0, 1]."""
     X, y, ids = prepared
